@@ -2,14 +2,14 @@ from os.path import exists
 from typing import Optional, Union
 
 import numpy as np
-from dynamicprompts.generators import CombinatorialPromptGenerator, RandomPromptGenerator
+from dynamicprompts.generators import RandomPromptGenerator
 from pydantic import field_validator
 
 from invokeai.app.invocations.baseinvocation import BaseInvocation, invocation
 from invokeai.app.invocations.fields import InputField, UIComponent
 from invokeai.app.invocations.primitives import StringCollectionOutput
 from invokeai.app.services.shared.invocation_context import InvocationContext
-from invokeai.app.util.dynamicprompts import find_missing_wildcards
+from invokeai.app.util.dynamicprompts import generate_combinatorial_prompts
 
 
 @invocation(
@@ -33,14 +33,9 @@ class DynamicPromptInvocation(BaseInvocation):
     def invoke(self, context: InvocationContext) -> StringCollectionOutput:
         if self.combinatorial:
             # An unknown wildcard used as a variant value sends the combinatorial generator into an
-            # infinite loop, so fail fast with a clear message instead of hanging the invocation. The
-            # random generator handles unknown wildcards gracefully and needs no guard.
-            missing_wildcards = find_missing_wildcards(self.prompt)
-            if missing_wildcards:
-                raise ValueError(f"No values found for wildcard(s): {', '.join(missing_wildcards)}")
-
-            generator = CombinatorialPromptGenerator()
-            prompts = generator.generate(self.prompt, max_prompts=self.max_prompts)
+            # infinite loop; this raises a ValueError with a clear message instead of hanging the
+            # invocation. The random generator handles unknown wildcards gracefully and needs no guard.
+            prompts = generate_combinatorial_prompts(self.prompt, self.max_prompts)
         else:
             generator = RandomPromptGenerator()
             prompts = generator.generate(self.prompt, num_images=self.max_prompts)

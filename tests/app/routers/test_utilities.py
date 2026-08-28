@@ -171,3 +171,41 @@ def test_image_to_prompt_admin_can_access_any_image(
     )
     # Admin passes the read-access check; model loading then fails with 404.
     assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_dynamicprompts_malformed_prompt_returns_parse_error(client: TestClient, user1_token: str):
+    r = client.post(
+        "/api/v1/utilities/dynamicprompts",
+        json={"prompt": "{a|b}{"},
+        headers={"Authorization": f"Bearer {user1_token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    body = r.json()
+    assert body["prompts"] == ["{a|b}{"]
+    assert body["error"]
+
+
+def test_dynamicprompts_parses_prompt_once(client: TestClient, user1_token: str, monkeypatch: pytest.MonkeyPatch):
+    """The unknown-wildcard guard must not cost a second full parse on top of the generator's own."""
+    import dynamicprompts.parser.parse as dynamicprompts_parse
+
+    from invokeai.app.util import dynamicprompts as dynamicprompts_util
+
+    real_parse = dynamicprompts_parse.parse
+    parsed: list[str] = []
+
+    def counting_parse(prompt: str, *args: Any, **kwargs: Any):
+        parsed.append(prompt)
+        return real_parse(prompt, *args, **kwargs)
+
+    monkeypatch.setattr(dynamicprompts_parse, "parse", counting_parse)
+    monkeypatch.setattr(dynamicprompts_util, "parse", counting_parse)
+
+    r = client.post(
+        "/api/v1/utilities/dynamicprompts",
+        json={"prompt": "a {b|c}"},
+        headers={"Authorization": f"Bearer {user1_token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    assert r.json()["prompts"] == ["a b", "a c"]
+    assert parsed == ["a {b|c}"]
